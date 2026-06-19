@@ -1,0 +1,135 @@
+﻿<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"><title>EEG Simulator - خطوة صفر</title>
+<style>
+body{background:#0a0a0a;color:#0f0;font-family:Courier;text-align:center;margin:0;padding:20px}
+canvas{background:#000;border:2px solid #0f0;margin:10px;display:block;margin:auto}
+button{padding:12px 25px;font-size:16px;margin:10px;background:#0f0;color:#000;border:none;cursor:pointer;font-weight:bold}
+#info{color:#ff0;margin:10px}
+.controls{margin:15px}
+label{margin:0 10px}
+</style>
+</head>
+<body>
+
+<h2>🧠 محاكي موجات المخ - EEG Simulator</h2>
+<div id="info">اضغط Start عشان تبدأ المحاكاة + المايك</div>
+
+<div class="controls">
+<button id="start">▶️ Start</button>
+<button id="stop">⏸️ Stop</button>
+<label>التردد الأساسي: <input type="range" id="freq" min="1" max="40" value="10"> <span id="freqVal">10Hz</span></label>
+</div>
+
+<canvas id="eeg" width="900" height="400"></canvas>
+<canvas id="fft" width="900" height="200"></canvas>
+
+<script>
+const c = document.getElementById('eeg'), ctx = c.getContext('2d');
+const f = document.getElementById('fft'), ftx = f.getContext('2d');
+const freqSlider = document.getElementById('freq');
+const freqVal = document.getElementById('freqVal');
+
+let audioCtx, analyser, mic, running = false;
+let time = 0;
+const channels = 4;
+const data = Array(channels).fill().map(()=>[]);
+
+function fakeEEG(baseFreq){
+  const waves = [];
+  waves.push(Math.sin(time * baseFreq * 0.1) * 30);
+  waves.push(Math.sin(time * baseFreq * 0.2) * 20 + Math.random()*10);
+  waves.push(Math.sin(time * baseFreq * 0.05) * 40);
+  waves.push(Math.sin(time * baseFreq * 0.02) * 50);
+
+  if(mic && analyser){
+    const micData = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(micData);
+    const micLevel = micData.reduce((a,b)=>a+b,0) / micData.length;
+    waves[0] += micLevel/4;
+  }
+
+  return waves.map(w => w + (Math.random()-0.5)*15);
+}
+
+function draw(){
+  ctx.fillStyle = 'rgba(0,0,0,0.1)';
+  ctx.fillRect(0,0,900,400);
+
+  const baseFreq = parseInt(freqSlider.value);
+  freqVal.textContent = baseFreq + 'Hz';
+
+  const waves = fakeEEG(baseFreq);
+  time++;
+
+  channels.forEach((ch,i)=>{
+    data[i].push(waves[i]);
+    if(data[i].length > 900) data[i].shift();
+
+    ctx.strokeStyle = ['#0ff','#ff0','#f0f','#0f0'][i];
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    data[i].forEach((val,x)=>{
+      const y = 50 + i*90 + val;
+      if(x==0) ctx.moveTo(x,y);
+      else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.font = '14px Courier';
+    ctx.fillText(['Fp1 - ألفا','Fp2 - بيتا','C3 - ثيتا','C4 - دلتا'][i], 10, 30 + i*90);
+  });
+
+  drawFFT(waves[0]);
+  if(running) requestAnimationFrame(draw);
+}
+
+function drawFFT(val){
+  ftx.fillStyle = '#000';
+  ftx.fillRect(0,0,900,200);
+  for(let i=0; i<100; i++){
+    const height = Math.random()*100 + Math.sin(i/10 + time/20)*50;
+    ftx.fillStyle = hsl(${i*3},100%,50%);
+    ftx.fillRect(i*9, 200-height, 8, height);
+  }
+  ftx.fillStyle = '#0f0';
+  ftx.font = '12px Courier';
+  ftx.fillText('FFT - تحليل الترددات 1-40Hz', 10, 15);
+}
+
+async function startMic(){
+  try{
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    mic = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    mic.connect(analyser);
+    document.getElementById('info').textContent = '✅ المايك شغال - اتكلم وشوف القناة الأولى بتتأثر';
+  }catch(e){
+    console.error('Mic error:', e);
+    document.getElementById('info').textContent = '⚠️ المايك ما اشتغل: ' + e.message;
+  }
+}
+
+document.getElementById('start').onclick = async ()=>{
+  running = true;
+  await startMic();
+  draw();
+  document.getElementById('start').disabled = true;
+}
+
+document.getElementById('stop').onclick = ()=>{
+  running = false;
+  if(audioCtx) audioCtx.close();
+  document.getElementById('start').disabled = false;
+  document.getElementById('info').textContent = '⏸️ متوقف';
+}
+
+freqSlider.oninput = ()=>{freqVal.textContent = freqSlider.value + 'Hz'};
+</script>
+</body>
+</html>
