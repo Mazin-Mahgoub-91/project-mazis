@@ -1,0 +1,140 @@
+﻿<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>EEG Bluetooth Full V2.1</title>
+<style>
+  body { background: #0a0a0a; color: #0ff; font-family: monospace; text-align: center; padding: 10px; }
+  canvas { background: #000; border: 2px solid #0ff; width: 98%; height: 350px; margin-top: 10px; }
+  button { background: #0ff; color: #000; border: none; padding: 12px 24px; margin: 5px; font-weight: bold; cursor: pointer; font-size: 16px; border-radius: 8px; }
+  button:disabled { background: #333; color: #555; cursor: not-allowed; }
+  #status { margin-top: 10px; font-size: 18px; color: #ff0; }
+</style>
+</head>
+<body>
+  <h2>🧠 EEG Bluetooth Real-Time V2.1</h2>
+  <button id="connectBtn">1. Connect BLE Device</button>
+  <button id="disconnectBtn" disabled>Disconnect</button>
+  <div id="status">Status: Waiting for Device...</div>
+  <canvas id="eegCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('eegCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = canvas.offsetWidth;
+canvas.height = 350;
+
+let bleDevice = null;
+let bleServer = null;
+let bleCharacteristic = null;
+const BUFFER_SIZE = 512;
+let eegBuffer = new Float32Array(BUFFER_SIZE).fill(0);
+let writeIndex = 0;
+let gain = 500.0; // معامل التكبير. لو الموجة صغيرة نقص الرقم دا لـ 200
+
+// 1. زر الاتصال - Auto Mode
+document.getElementById('connectBtn').onclick = async () => {
+  try {
+    document.getElementById('status').innerText = "Status: Scanning BLE...";
+
+    bleDevice = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb'] // UUID عام بشتغل مع اغلب الـ ESP32
+    });
+
+    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+    document.getElementById('status').innerText = Status: Connecting to ${bleDevice.name}...;
+    bleServer = await bleDevice.gatt.connect();
+
+    // بنفتش اول Service فيها Characteristic بتدعم Notify
+    const services = await bleServer.getPrimaryServices();
+    for (const service of services) {
+      const characteristics = await service.getCharacteristics();
+      for (const char of characteristics) {
+        if (char.properties.notify) {
+          bleCharacteristic = char;
+          break;
+        }
+      }
+      if (bleCharacteristic) break;
+    }
+    if (!bleCharacteristic) throw new Error("No Notify Characteristic found");
+
+    await bleCharacteristic.startNotifications();
+    bleCharacteristic.addEventListener('characteristicvaluechanged', handleBLEData);
+
+    document.getElementById('status').innerText = Status: Connected. Streaming...;
+    document.getElementById('connectBtn').disabled = true;
+    document.getElementById('disconnectBtn').disabled = false;
+    draw();
+
+  } catch (error) {
+    document.getElementById('status').innerText = "Status: Failed. " + error.message;
+    console.error(error);
+  }
+};
+
+// 2. استقبال الداتا - السطر البمنع التعليق هسي
+function handleBLEData(event) {
+  const value = event.target.value; // DataView
+
+  if (value.byteLength < 2) return; // <<<< دا السطر البمنع التعليق. لو الداتا ناقصة اطلع طوالي
+
+  // نفترض الجهاز برسل Int16 متتالي. يعني 2,4,6... بايت
+  for (let i = 0; i <= value.byteLength - 2; i += 2) {
+    const sample = value.getInt16(i, true); // true = little endian
+    eegBuffer[writeIndex] = sample / gain; // نقسم عشان تنزل في الشاشة
+    writeIndex = (writeIndex + 1) % BUFFER_SIZE;
+  }
+}
+
+// 3. فصل
+document.getElementById('disconnectBtn').onclick = () => {
+  if (bleDevice && bleDevice.gatt.connected) {
+    bleDevice.gatt.disconnect();
+  }
+};
+
+function onDisconnected() {
+  document.getElementById('status').innerText = "Status: Disconnected.";
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('disconnectBtn').disabled = true;
+  bleDevice = null;
+  bleServer = null;
+  bleCharacteristic = null;
+}
+
+// 4. الرسم Loop
+function draw() {
+  if (!bleDevice ||!bleDevice.gatt.connected) return; // وقف الرسم لو فصلنا
+
+  requestAnimationFrame(draw);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#0ff';
+  ctx.lineWidth = 2;
+
+  let sliceWidth = canvas.width / BUFFER_SIZE;
+  let x = 0;
+  for (let i = 0; i < BUFFER_SIZE; i++) {
+    let index = (writeIndex + i) % BUFFER_SIZE; // Ring Buffer
+    let y = canvas.height / 2 - eegBuffer[index];
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+    x += sliceWidth;
+  }
+  ctx.stroke();
+
+  // خط الصفر
+  ctx.strokeStyle = '#333';
+  ctx.beginPath();
+  ctx.moveTo(0, canvas.height/2);
+  ctx.lineTo(canvas.width, canvas.height/2);
+  ctx.stroke();
+}
+</script>
+</body>
+</html>
