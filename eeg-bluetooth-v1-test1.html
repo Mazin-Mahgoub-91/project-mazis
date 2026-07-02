@@ -1,0 +1,94 @@
+﻿<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>EEG Bluetooth - Phone Mode V2</title>
+<style>
+  body { background: #0a0a0a; color: #0ff; font-family: monospace; text-align: center; padding: 10px; }
+  canvas { background: #000; border: 2px solid #0ff; width: 98%; height: 350px; margin-top: 10px; }
+  button { background: #0ff; color: #000; border: none; padding: 12px 24px; margin: 5px; font-weight: bold; cursor: pointer; font-size: 16px; border-radius: 8px; }
+  button:disabled { background: #333; color: #555; }
+  #status { margin-top: 10px; font-size: 18px; color: #ff0; }
+</style>
+</head>
+<body>
+  <h2>EEG Bluetooth - Phone Sender Test V2</h2>
+  <button id="connectBtn">1. Connect Phone BLE</button>
+  <button id="disconnectBtn" disabled>Disconnect</button>
+  <div id="status">Status: Waiting for Phone...</div>
+  <canvas id="eegCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('eegCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = canvas.offsetWidth;
+canvas.height = 350;
+
+let bleDevice = null;
+let bleCharacteristic = null;
+const BUFFER_SIZE = 512;
+let eegBuffer = new Float32Array(BUFFER_SIZE).fill(0);
+let writeIndex = 0;
+let gain = 500.0;
+
+document.getElementById('connectBtn').onclick = async function() {
+  try {
+    document.getElementById('status').innerText = "Status: Scanning for Phone...";
+    bleDevice = await navigator.bluetooth.requestDevice({
+      filters: [{ name: "Serial Bluetooth Terminal" }],
+      optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb']
+    });
+    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+    const server = await bleDevice.gatt.connect();
+    const service = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
+    bleCharacteristic = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
+    await bleCharacteristic.startNotifications();
+    bleCharacteristic.addEventListener('characteristicvaluechanged', handleBLEData);
+    document.getElementById('status').innerText = "Status: Connected to Phone. Streaming...";
+    document.getElementById('connectBtn').disabled = true;
+    document.getElementById('disconnectBtn').disabled = false;
+    draw();
+  } catch (error) {
+    document.getElementById('status').innerText = "Status: Failed. " + error;
+    console.error(error);
+  }
+};
+
+function handleBLEData(event) {
+  const value = event.target.value;
+  if (value.byteLength < 2) return;
+  for (let i = 0; i <= value.byteLength - 2; i = i + 2) {
+    const sample = value.getInt16(i, true);
+    eegBuffer[writeIndex] = sample / gain;
+    writeIndex = (writeIndex + 1) % BUFFER_SIZE;
+  }
+}
+
+document.getElementById('disconnectBtn').onclick = function() {
+  if (bleDevice && bleDevice.gatt.connected) { bleDevice.gatt.disconnect(); }
+};
+
+function onDisconnected() {
+  document.getElementById('status').innerText = "Status: Disconnected.";
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('disconnectBtn').disabled = true;
+}
+
+function draw() {
+  if (!bleDevice ||!bleDevice.gatt.connected) return;
+  requestAnimationFrame(draw);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath(); ctx.strokeStyle = '#0ff'; ctx.lineWidth = 2;
+  let sliceWidth = canvas.width / BUFFER_SIZE; let x = 0;
+  for (let i = 0; i < BUFFER_SIZE; i++) {
+    let index = (writeIndex + i) % BUFFER_SIZE;
+    let y = canvas.height / 2 - eegBuffer[index];
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    x = x + sliceWidth;
+  }
+  ctx.stroke();
+  ctx.strokeStyle = '#333'; ctx.beginPath(); ctx.moveTo(0, canvas.height/2); ctx.lineTo(canvas.width, canvas.height/2); ctx.stroke();
+}
+</script>
+</body>
+</html>
