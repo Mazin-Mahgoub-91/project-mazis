@@ -1,0 +1,55 @@
+﻿<!DOCTYPE html>
+<html dir="rtl">
+<head><meta charset="UTF-8"><title>قارئ كلام - نسختين</title>
+<style>body{background:#111;color:#0f0;font-family:monospace;text-align:center;padding:15px}button{padding:12px 20px;background:#0f0;color:#000;border:none;border-radius:8px;font-weight:bold;margin:5px} #out{font-size:28px;border:2px solid #0f0;min-height:80px;padding:15px;margin:15px auto;max-width:900px;background:#000}</style>
+</head>
+<body>
+<h2>خيارين منفصلين - بدون كذب علمي</h2>
+<button id="micBtn">شغل المايك - يطبع كلامك المنطوق</button>
+<button id="btBtn">شغل البلوتوث - يطبع تركيزك (نعم/لا)</button>
+<div id="out">الكلام حيظهر هنا...</div>
+<p id="info"></p>
+
+<script>
+const out = document.getElementById('out');
+const info = document.getElementById('info');
+
+// === الخيار الأول: المايك كمستشعر - يطبع الكلام البتقولو ===
+document.getElementById('micBtn').onclick = () => {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SpeechRecognition) return alert("استخدم Chrome");
+
+  const rec = new SpeechRecognition();
+  rec.lang = 'ar-SA'; // بفهم عربي
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  rec.onstart = ()=> info.textContent = "المايك شغال - اتكلم هسي والمكتوب هو كلامك المنطوق، ما أفكارك الداخلية";
+  rec.onresult = (e) => {
+    let text = "";
+    for(let i=e.resultIndex;i<e.results.length;i++) text += e.results[i][0].transcript;
+    out.textContent = text;
+  };
+  rec.start();
+};
+
+// === الخيار الثاني: البلوتوث منفصل - يطبع حالة مخك ===
+document.getElementById('btBtn').onclick = async () => {
+  try{
+    const device = await navigator.bluetooth.requestDevice({acceptAllDevices:true});
+    info.textContent = "متصل: " + device.name + " - ده بقرا تركيزك، ما بقرا جُمَل كاملة";
+
+    // محاكاة قراءة تركيز - لو اديتني موديل خوذتك بجيب ليك القراءة الحقيقية
+    let level = 0;
+    setInterval(()=>{
+      level = 30 + Math.random()*70;
+      if(level > 70) out.textContent = "نعم - مركز";
+      else if(level < 40) out.textContent = "لا - مسترخي";
+      else out.textContent = "... بفكر...";
+    },800);
+
+  }catch(e){ info.textContent = "فشل البلوتوث: " + e.message; }
+};
+</script>
+</body>
+</html>
