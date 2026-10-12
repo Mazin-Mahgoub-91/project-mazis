@@ -1,0 +1,66 @@
+﻿<!DOCTYPE html>
+<html dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>مستشعر مايك - طباعة كلام</title>
+<style>
+body{background:#000;color:#0f0;font-family:monospace;text-align:center;padding:20px}
+button{padding:14px 25px;background:#0f0;color:#000;border:none;border-radius:8px;font-weight:bold;font-size:16px}
+#out{margin:20px auto;max-width:900px;min-height:100px;border:2px solid #0f0;padding:15px;font-size:24px;background:#111;text-align:right}
+canvas{width:100%;max-width:900px;height:150px;background:#111;border:1px solid #0f0}
+</style>
+</head>
+<body>
+<h2>🎤 المايك كمستشعر - قراءة إشارة خام وطباعة كلام</h2>
+<button id="start">شغل المستشعر</button>
+<div id="out">...</div>
+<canvas id="wave"></canvas>
+<p id="raw">خام: 0</p>
+
+<script>
+const out = document.getElementById('out');
+const rawEl = document.getElementById('raw');
+const canvas = document.getElementById('wave');
+const ctx = canvas.getContext('2d');
+
+document.getElementById('start').onclick = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+
+  // 1- قراءة الإشارة الخام
+  const audioCtx = new AudioContext();
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  const source = audioCtx.createMediaStreamSource(stream);
+  source.connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+
+  function draw(){
+    requestAnimationFrame(draw);
+    analyser.getByteFrequencyData(data);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = "#0f0";
+    for(let i=0;i<data.length;i++){
+      ctx.fillRect(i*2, canvas.height - data[i], 1, data[i]);
+    }
+    let avg = data.reduce((a,b)=>a+b,0)/data.length;
+    rawEl.textContent = "إشارة خام: " + avg.toFixed(1) + " | Peak: " + Math.max(...data);
+  }
+  draw();
+
+  // 2- طباعة الكلام من الإشارة
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SpeechRecognition();
+  rec.lang = 'ar-SA';
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  rec.onresult = (e) => {
+    let txt = "";
+    for(let i=e.resultIndex;i<e.results.length;i++) txt += e.results[i][0].transcript + " ";
+    out.textContent = txt;
+  };
+  rec.start();
+};
+</script>
+</body>
+</html>
