@@ -1,0 +1,104 @@
+﻿<!DOCTYPE html>
+<html dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>تصحيح طباعة كلام الفم</title>
+<style>
+body{background:#000;color:#0f0;font-family:monospace;padding:15px;text-align:center}
+button{padding:14px 25px;background:#0f0;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:18px;margin:5px;cursor:pointer}
+#out{max-width:900px;margin:15px auto;min-height:120px;border:2px solid #0f0;padding:15px;font-size:26px;background:#111;white-space:pre-wrap}
+#log{max-width:900px;margin:auto;background:#222;color:#ff0;padding:10px;text-align:left;direction:ltr;font-size:12px;min-height:80px}
+canvas{width:100%;max-width:900px;height:120px;background:#111;border:1px solid #0f0}
+select{padding:8px;margin:5px}
+</style>
+</head>
+<body>
+<h2>🎤 تصحيح - طباعة كلام الفم Speech to Text</h2>
+
+<select id="lang">
+  <option value="ar-SD">عربي سوداني</option>
+  <option value="ar-SA" selected>عربي عام</option>
+  <option value="en-US">English</option>
+</select>
+
+<button id="start">شغل واتكلم</button>
+<button id="stop">وقف</button>
+
+<div id="out">الكلام حيظهر هنا... اتكلم بصوت واضح</div>
+<canvas id="meter"></canvas>
+<div id="log">LOG:</div>
+
+<script>
+const out = document.getElementById('out');
+const logEl = document.getElementById('log');
+const canvas = document.getElementById('meter');
+const ctx = canvas.getContext('2d');
+function addLog(t){ logEl.textContent += "\n> " + t; console.log(t); }
+
+let rec, audioCtx, analyser;
+
+document.getElementById('start').onclick = async () => {
+  try{
+    addLog("بطلب إذن المايك...");
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    addLog("المايك اشتغل ✅");
+
+    // عداد قوة الصوت عشان تعرف المايك شغال ولا لا
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    drawMeter();
+
+    // محرك تحويل الصوت لنص
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){ addLog("متصفحك ما بدعم SpeechRecognition - استخدم Chrome على الكمبيوتر"); return; }
+
+    rec = new SR();
+    rec.lang = document.getElementById('lang').value;
+    rec.continuous = true;
+    rec.interimResults = true;
+
+    rec.onstart = () => addLog("محرك الكلام اشتغل - اتكلم هسي");
+    rec.onerror = (e) => addLog("ERROR: " + e.error + " - لو not-allowed معناها ما اديت إذن المايك");
+    rec.onend = () => addLog("المحرك وقف - دوس شغل تاني");
+
+    rec.onresult = (e) => {
+      let finalText = "";
+      let interim = "";
+      for(let i=0;i<e.results.length;i++){
+        let t = e.results[i][0].transcript;
+        if(e.results[i].isFinal) finalText += t + " ";
+        else interim += t;
+      }
+      out.textContent = finalText + " [" + interim + "]";
+      addLog("لقط كلام: " + finalText + interim);
+    };
+
+    rec.start();
+    addLog("rec.start() اتنفذ - اللغة: " + rec.lang);
+
+  }catch(err){
+    addLog("فشل: " + err.message);
+    alert("لازم تسمح للمايك + لازم تفتح الملف عبر http مش file. شغل Live Server في VS Code");
+  }
+};
+
+document.getElementById('stop').onclick = () => {
+  if(rec) rec.stop();
+  addLog("وقفت");
+};
+
+function drawMeter(){
+  requestAnimationFrame(drawMeter);
+  if(!analyser) return;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(data);
+  let avg = data.reduce((a,b)=>a+b,0)/data.length;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = avg > 30? "#0f0" : "#333";
+  ctx.fillRect(0,0, (avg/100)*canvas.width, canvas.height);
+}
+</script>
+</body>
+</html>
